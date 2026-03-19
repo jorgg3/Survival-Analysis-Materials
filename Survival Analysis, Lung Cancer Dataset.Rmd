@@ -1,0 +1,174 @@
+---
+title: "Survival Analysis: Lung Cancer Dataset"
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+# Optional: install.packages("Cairo") if you don't have it
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 8, fig.height = 6, 
+                      dev = "png", dev.args = list(type = "cairo"))
+```
+
+
+As always, first we load the necessary libraries and prepare our dataset. We will use the `lung` dataset from the `survival` package, and we will clean the variables to facilitate their interpretation.
+
+```{r}
+library(survival)
+library(survminer)
+library(dplyr)
+library(ggplot2)
+
+# Load and prepare the dataset
+datos_pulmon <- lung %>%
+  mutate(
+    # The original dataset has status: 1=censored, 2=dead. We change it to 0 and 1.
+    evento = ifelse(status == 2, 1, 0),
+    # Label sex (1=Male, 2=Female)
+    sexo_factor = factor(sex, levels = c(1, 2), labels = c("Male", "Female")),
+    # Create age groups for the contrasts
+    grupo_edad = cut(age, 
+                     breaks = c(0, 50, 65, Inf), 
+                     labels = c("<50 years", "50-65 years", ">65 years")),
+    # Label the ECOG variable (patient performance status)
+    ecog_factor = factor(ph.ecog)
+  )
+```
+We perform a general descriptive analysis of the subjects' characteristics and their survival times.
+
+## Descriptive Analysis
+
+```{r}
+# General summary of survival time in days
+summary(datos_pulmon$time)
+
+# General characteristics
+table(datos_pulmon$sexo_factor)
+table(datos_pulmon$grupo_edad)
+table(datos_pulmon$ecog_factor)
+
+# Proportion of events (1 = Death, 0 = Censored)
+table(datos_pulmon$evento)
+```
+The survival time distribution is right-skewed, mean (305.2 days) > median (255.5 days). 
+
+```{r}
+
+ggplot(datos_pulmon, aes(x = time)) +
+  
+  geom_histogram(aes(y = after_stat(density)), bins = 30, 
+                 fill = "blue", color = "white", alpha = 0.8) +
+  
+  geom_density(color = "red", linewidth = 1.2) +
+
+  geom_vline(aes(xintercept = median(time, na.rm = TRUE)), 
+             color = "black", linetype = "dashed", linewidth = 0.8) +
+
+  theme_minimal() +
+  labs(title = "Survival Time Distribution",
+       x = "days",
+       y = "Density") +
+  theme(plot.title = element_text(face = "bold", size = 14),
+         axis.text = element_text(size = 10))
+```
+
+
+There are patients who died or were censored at 5 days, at least one patient exceeded 1000 days (1022.0). The 50% interquartile range had a survival time between 166.8 and 396.5 days.
+
+There is a predominance of men (138) over women (90), representing approximately 60% versus 40%.
+
+It is a disease that primarily affects older adults. Only 26 patients are under 50 years old, while the majority of the population (202 patients) exceeds that age, with a fairly even distribution between those aged 50-65 and those over 65.
+
+Most patients (113) are in category 1 (restricted in physically strenuous activity but ambulatory). There is a proportion of asymptomatic patients (category 0: 63) and very few in states of severe bedbound condition (category 3: 1).
+
+The study has a high level of event completeness. There were 165 recorded failures (72% of the sample) compared to only 63 censored observations.
+
+
+## Survival curves:
+
+We fit and plot the survival functions including the 95% confidence intervals. 
+$S(t)$ Population
+
+```{r}
+km_pob <- survfit(Surv(time, evento) ~ 1, data = datos_pulmon)
+ggsurvplot(km_pob, conf.int = TRUE, 
+           title = "Population Survival (Lung Cancer)",
+           xlab = "days", ylab = "S(t)")
+```
+$S(t)$ by Sex
+
+```{r}
+km_sexo <- survfit(Surv(time, evento) ~ sexo_factor, data = datos_pulmon)
+ggsurvplot(km_sexo, conf.int = TRUE, pval = TRUE,
+           title = "Survival by Sex",
+           xlab = "days", ylab = "S(t)")
+```
+
+$S(t)$ by ECOG Scale (Physical Performance)
+
+```{r}
+km_ecog <- survfit(Surv(time, evento) ~ ecog_factor, data = datos_pulmon)
+
+ggsurvplot(km_ecog, 
+           conf.int = FALSE,            # Here we turn off the intervals
+           title = "Survival by ECOG Scale",
+           xlab = "Time (days)", 
+           ylab = "S(t)",
+           ggtheme = theme_minimal())
+```
+
+## Contrasts
+
+We analytically evaluate whether there are statistically significant differences between the curves with a significance level of $\alpha = 0.05$.
+We set up the hypothesis test for the equality of curves:\
+
+$H_0: S_j(t) = S_k(t), \forall t > 0 \, \, \, ,\forall k, j$ vs \
+
+$H_1: S_j(t) \neq S_k(t)$ for some $t > 0$ or for some $k \neq j$
+
+
+### Contrast by Gender
+We evaluate whether there are survival differences between men and women.
+
+
+
+
+```{r}
+# Log-Rank 
+survdiff(Surv(time, evento) ~ sexo_factor, data = datos_pulmon, rho = 0)
+
+# Wilcoxon 
+
+survdiff(Surv(time, evento) ~ sexo_factor, data = datos_pulmon, rho = 1)
+```
+We reject $H_0$, concluding that the survival time does significantly differ depending on the gender of the patient at the time of diagnosis.
+
+Let us remember that the Wilcoxon test weights the observed differences at each failure time by multiplying them by the number of individuals who are "at risk" at that time ($n_i$). Since there are more patients at risk at the beginning of the study, this test gives much more importance to early events and penalizes less the failures that occur at the end where data are usually scarcer due to censoring. 
+
+
+### Contrast by Age Groups.
+
+```{r}
+# Log-Rank
+
+survdiff(Surv(time, evento) ~ grupo_edad, data = datos_pulmon, rho = 0)
+
+# Wilcoxon
+
+survdiff(Surv(time, evento) ~ grupo_edad, data = datos_pulmon, rho = 1)
+```
+We do not have sufficient statistical evidence to reject $H_0$, which would imply that the survival functions by age group are not significantly different.
+
+We now want to make the strata analysis:
+
+```{r}
+# test w strata
+
+survdiff(Surv(time, evento) ~ sexo_factor + strata(grupo_edad), data = datos_pulmon, rho = 0)
+survdiff(Surv(time, evento) ~ sexo_factor + strata(grupo_edad), data = datos_pulmon, rho = 1)
+
+#The strata function allows us to control for the effect of age groups while evaluating the differences in survival, this means that we are comparing the survival focusing on the differences even though the age groups may have different survival patterns. By including strata(grupo_edad), we are essentially adjusting for the potential confounding effect of age groups, allowing us to isolate the effect
+```
+

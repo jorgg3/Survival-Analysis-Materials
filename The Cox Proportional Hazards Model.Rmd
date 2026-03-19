@@ -1,0 +1,90 @@
+---
+title: "The Cox Proportional Hazards Model"
+author: "Jorge de la Cruz"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+# Cox Proportional Hazards Model: Drug Relapse Analysis (UIS Study)
+
+This study analyzes the time to drug relapse for patients enrolled in two residential treatment programs. The goal is to identify which factors (age, prior treatments, site, etc.) significantly influence the hazard of returning to drug use.
+
+## 1. Dataset Description (UIS)
+
+The following table details the coding for each variable to facilitate the interpretation of model coefficients.
+
+| Variable | Description | Coding |
+| :--- | :--- | :--- |
+| **id** | Unique Identifier | Subject ID |
+| **age** | Age | Age at enrollment |
+| **beck** | Beck Score | Depression scale score |
+| **ndrugtx** | Prior Treatments | Number of previous rehabilitation attempts |
+| **treat** | Program | **0**: Short, **1**: Long |
+| **site** | Site | **0**: Site A, **1**: Site B |
+| **race** | Race | **0**: White, **1**: Non-white |
+| **hercoc** | Prior Drug Use | **1**: Heroin & Cocaine, **2**: Heroin only, **3**: Cocaine only, **4**: None |
+| **ivhx** | IV Drug History | **1**: Never, **2**: Previous, **3**: Recent |
+| **time** | **Time** | Days until relapse (Failure Time) |
+| **censor** | **Event** | **1**: Relapse (Event), **0**: Censored |
+
+```{r, message=FALSE, warning=FALSE}
+library(survival)
+library(KMsurv)
+library(ggplot2)
+library(ggfortify)
+```
+
+```{r}
+# Loading the data
+uis <- read.csv("uis.csv")
+```
+We use 6-month intervals (180 days) to observe the decay in survival probability over time.
+
+```{r}
+uis$interval <- floor(uis$time/180)*180
+tab <- table(uis$interval, uis$censor)
+intEndpts <- (0:6)*180
+ntotal <- nrow(uis)
+fitLifeTable <- lifetab(tis = intEndpts, ninit=ntotal, nlost=tab[,1], nevent=tab[,2])
+round(fitLifeTable, 4)
+```
+We estimate the survival function $S(t)$ and compare groups using Log-rank tests.
+
+```{r}
+# Survival comparison by Treatment Program
+survdiff(Surv(time, censor) ~ treat, data=uis)
+
+# Survival comparison by Race
+survdiff(Surv(time, censor) ~ race, data=uis)
+```
+
+The Cox model defines the hazard at time $t$ as:
+$$h(t) = h_0(t) \exp(\beta_1 \text{age} + \beta_2 \text{beck} + \beta_3 \text{ndrugtx} + \beta_4 \text{treat} + \beta_5 \text{site} $$
+
+```{r}
+# Fitting the Multivariable Cox Model
+cox_mod <- coxph(Surv(time, censor) ~ treat + age + ndrugtx + factor(ivhx) + site, data=uis)
+summary(cox_mod)
+```
+A key assumption of the Cox model is that the hazard ratios are constant over time. We verify this visually using log-log plots: $\log(-\log(S(t)))$ vs $\log(t)$. If the lines are parallel, the assumption holds.
+
+```{r}
+# Example: Verification for the 'Site' variable
+result_surv0 <- survfit(Surv(time, censor) ~ 1, data=uis, subset={site == 0})
+result_surv1 <- survfit(Surv(time, censor) ~ 1, data=uis, subset={site == 1})
+
+plot(log(result_surv0$time), log(-log(result_surv0$surv)), type="s", col="blue", lwd=2,
+     main="Log-Log Plot: Site", xlab="log(time)", ylab="log(-log(S(t)))")
+lines(log(result_surv1$time), log(-log(result_surv1$surv)), col="red", lwd=2, type="s")
+legend("bottomright", legend=c("Site 0", "Site 1"), col=c("blue", "red"), lwd=2)
+```
+
+We explore if the effect of the treatment varies depending on the site or age (Interactions). This is crucial for tailored clinical decisions.
+
+```{r}
+# Stratified comparison
+survdiff(Surv(time, censor) ~ treat + strata(site), data=uis)
+```
+
+---
+Note on materials: This code and analytical structure are based on the Survival Models and Time Series course taught by Prof. Lizbeth Naranjo at UNAM.

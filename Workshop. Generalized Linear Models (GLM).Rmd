@@ -1,0 +1,99 @@
+---
+title: 'Workshop: Generalized Linear Models (GLM)'
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction to Generalized Linear Models (GLM)
+Generalized Linear Models (GLMs) extend ordinary linear regression by allowing the response variable to have an error distribution other than a normal distribution. In this workshop, we cover Logistic Regression for binary outcomes and Poisson Regression for count data
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(broom)
+library(margins)
+library(pscl)
+
+set.seed(236)
+```
+## Logistic Regression: Titanic Dataset
+We use the Titanic dataset to model the probability of survival based on socio-economic class, sex, and age.
+
+```{r}
+# Load and prepare the Titanic dataset
+data("Titanic")
+titanic_df <- as.data.frame(Titanic)
+
+# Expand frequencies to create a tidy dataset
+titanic_expanded <- titanic_df[rep(1:nrow(titanic_df), titanic_df$Freq), ]
+titanic_expanded$Freq <- NULL
+
+# Create binary survival variable
+titanic_expanded$Survived <- ifelse(titanic_expanded$Survived == "Yes", 1, 0)
+
+str(titanic_expanded)
+```
+### Model fit and interpretation
+
+```{r}
+# Fit Logistic Model
+logit_model <- glm(Survived ~ Class + Sex + Age,
+                   data = titanic_expanded,
+                   family = binomial(link = "logit"))
+
+summary(logit_model)
+
+# Calculate Odds Ratios: exp(beta)
+odds_ratios <- exp(coef(logit_model))
+print(odds_ratios)
+
+# Calculate Marginal Effects
+# These represent the change in probability for a unit change in the predictor
+logit_margins <- margins(logit_model)
+summary(logit_margins)
+```
+## Poisson Regression: Count Data
+
+We analyze the warpbreaks dataset, which records the number of breaks in yarn during weaving.
+
+```{r}
+data("warpbreaks")
+summary(warpbreaks)
+```
+
+### Model fit and interpretation
+```{r}
+# Fit Poisson Model
+poisson_model <- glm(breaks ~ wool + tension,
+                     data = warpbreaks,
+                     family = poisson(link = "log"))
+
+summary(poisson_model)
+
+# Calculate Incidence Rate Ratios (IRR)
+irr_poisson <- exp(coef(poisson_model))
+print(irr_poisson)
+
+# Overdispersion Diagnostic (Ratio of Pearson chi-square to degrees of freedom)
+# If dispersion > 1, the variance exceeds the mean, violating Poisson assumptions.
+dispersion_ratio <- sum(residuals(poisson_model, type = "pearson")^2) /
+                    poisson_model$df.residual
+cat("Dispersion Ratio:", dispersion_ratio, "\n")
+```
+
+When overdispersion is present (as seen above), we use a Quasi-Poisson model to adjust the standard errors
+
+```{r}
+# Fit Quasi-Poisson Model
+quasi_model <- glm(breaks ~ wool + tension,
+                   data = warpbreaks,
+                   family = quasipoisson(link = "log"))
+
+summary(quasi_model)
+```
+Note on Quasi-Poisson: We do not aim to eliminate overdispersion but to estimate it through the dispersion parameter $\phi$. The key comparison is that the Standard Errors (SE) in the Quasi-model should be larger than in the standard Poisson model, leading to more reliable p-values.

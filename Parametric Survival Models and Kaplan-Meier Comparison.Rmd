@@ -1,0 +1,179 @@
+---
+title: "Parametric Survival Models and Kaplan-Meier Comparison"
+author: "Jorge de la Cruz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction to Parametric Modeling
+
+In survival analysis, parametric models assume that the survival time $T$ follows a specific probability distribution. In this session, we explore the Exponential, Weibull, and Log-Normal distributions using lung cancer data.
+
+```{r}
+library(survival)
+```
+## Data Loading and Preprocessing
+
+We use the NCCTG Lung Cancer dataset to model survival times.
+
+```{r}
+# Ensure the data file is in your working directory
+datos <- read.table(file = "NCCTGLungCancer.txt", header = TRUE)
+# For demonstration, we'll use the built-in 'lung' dataset from survival package
+data(lung)
+datos <- lung
+head(datos)  
+str(datos)
+```
+
+## Fitting Parametric Models
+
+### Exponential Model
+The Exponential distribution assumes a constant hazard rate $\lambda$.
+
+```{r}
+modelo_exponencial <- survreg(Surv(time, status) ~ 1, 
+                              data = datos, 
+                              dist = "exponential")
+
+summary(modelo_exponencial)
+
+# In survreg, the intercept is log(1/lambda)
+lambda_estimado <- exp(-coef(modelo_exponencial)[1])
+
+# Plotting the density function f(t)
+tiempos <- seq(0, max(datos$time, na.rm = TRUE), length.out = 500)
+
+hist(datos$time, 
+     freq = FALSE, 
+     main = "Histogram vs. Exponential Density",
+     xlab = "Time (t)", 
+     ylab = "f(t)",
+     col = "lightgray", 
+     border = "white",
+     ylim = c(0, 0.005))
+
+densidad_exp <- lambda_estimado * exp(-lambda_estimado * tiempos)
+lines(tiempos, densidad_exp, col = "blue", lwd = 3, lty = 1)
+
+legend("topright", 
+       legend = c("Histogram", "Exponential f(t)"),
+       fill = c("lightgray", NA),
+       col = c(NA, "blue"),
+       border = c("white", NA),
+       lwd = c(NA, 3),
+       bty = "n")
+```
+### Weibull Model
+
+The Weibull distribution is more flexible as it allows for increasing or decreasing hazard rates over time.
+
+```{r}
+modelo_weibull <- survreg(Surv(time, status) ~ 1, 
+                          data = datos, 
+                          dist = "weibull")
+
+# Scale (lambda) and Shape (k) parameters
+escala_weibull <- exp(coef(modelo_weibull)[1]) 
+forma_weibull  <- 1 / modelo_weibull$scale     
+
+hist(datos$time, 
+     freq = FALSE, 
+     main = "Histogram vs. Weibull Density",
+     xlab = "Time (t)", 
+     ylab = "Density",
+     col = "lightgray", 
+     border = "white",
+     ylim = c(0, 0.0035)) 
+
+densidad_weibull <- dweibull(tiempos, 
+                             shape = forma_weibull, 
+                             scale = escala_weibull)
+
+lines(tiempos, densidad_weibull, col = "purple", lwd = 3)         
+
+legend("topright", 
+       legend = c("Histogram", "Weibull Density"),
+       fill = c("lightgray", NA),
+       col = c(NA, "purple"),
+       border = c("white", NA),
+       lwd = c(NA, 3),
+       bty = "n")
+```
+### Log-Normal Model
+The Log-Normal model is often used when the hazard rate initially increases and then decreases.
+
+```{r}
+modelo_lognormal <- survreg(Surv(time, status) ~ 1, 
+                            data = datos, 
+                            dist = "lognormal")
+
+mu_lognormal <- coef(modelo_lognormal)[1]
+sigma_lognormal <- modelo_lognormal$scale
+
+hist(datos$time, 
+     freq = FALSE, 
+     main = "Histogram vs. Log-Normal Density",
+     xlab = "Time (t)", 
+     ylab = "Density",
+     col = "lightgray", 
+     border = "white",
+     ylim = c(0, 0.0035)) 
+
+densidad_lognormal <- dlnorm(tiempos, 
+                             meanlog = mu_lognormal, 
+                             sdlog = sigma_lognormal)
+
+lines(tiempos, densidad_lognormal, col = "darkorange", lwd = 3)
+
+legend("topright", 
+       legend = c("Histogram", "Log-Normal Density"),
+       fill = c("lightgray", NA),
+       col = c(NA, "darkorange"),
+       border = c("white", NA),
+       lwd = c(NA, 3),
+       bty = "n")
+```
+
+## Kaplan-Meier Comparison
+
+Finally, we compare the survival functions $S(t)$ of all parametric models against the non-parametric Kaplan-Meier estimate to see which one fits the data best.
+
+```{r}
+# Kaplan-Meier fit
+km_fit <- survfit(Surv(time, status) ~ 1, data = datos)
+
+plot(km_fit, 
+     main = "Model Comparison: S(t)",
+     xlab = "Time (t)", 
+     ylab = "Survival Probability S(t)",
+     col = "black", 
+     lwd = 3,
+     conf.int = FALSE) 
+
+# Calculate Survival Functions for each model
+S_exp <- exp(-lambda_estimado * tiempos)
+S_weibull <- pweibull(tiempos, shape = forma_weibull, scale = escala_weibull, lower.tail = FALSE)
+S_lognorm <- plnorm(tiempos, meanlog = mu_lognormal, sdlog = sigma_lognormal, lower.tail = FALSE)
+
+# Add lines to the plot
+lines(tiempos, S_exp, col = "red", lwd = 2, lty = 2)
+lines(tiempos, S_weibull, col = "purple", lwd = 2, lty = 2)
+lines(tiempos, S_lognorm, col = "darkorange", lwd = 2, lty = 1)
+
+legend("topright", 
+       legend = c("Kaplan-Meier (Non-parametric)", 
+                  "Exponential", 
+                  "Weibull", 
+                  "Log-Normal"),
+       col = c("black", "red", "purple", "darkorange"),
+       lwd = c(3, 2, 2, 2),
+       lty = c(1, 2, 2, 1),
+       bty = "n",
+       cex = 0.8)
+```
+

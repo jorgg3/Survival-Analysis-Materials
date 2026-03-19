@@ -1,0 +1,245 @@
+---
+title: "Variable Selection and Linearity Diagnostics in Cox Models"
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(collett)
+```
+
+# ### Example 1
+ This example analyzes the survival time of breast cancer patients, classified according to the staining result of their tumors. The indicator variable takes the value of 1 for positive staining and 0 for negative. 
+
+```{r}
+data(bcancer) # The breast cancer database is loaded
+
+
+bcancer$staining <- bcancer$stain - 1 
+
+# The Cox model is fitted
+modelo_1 <- coxph(Surv(time, status) ~ staining, data = bcancer, ties = "breslow")
+
+# results
+summary(modelo_1)
+
+```
+
+# ### Example 2
+In this second case, the survival of 48 patients is modeled using seven explanatory variables: Age, Sex, Bun, Ca, Hb, Pcells, and Protein.
+
+```{r}
+data(myeloma) # The myeloma database is loaded
+
+
+modelo_2 <- coxph(Surv(time, status) ~ age + sex + bun + ca + hb + pcells + protein, 
+                         data = myeloma)
+
+# The model is fitted without the 'bun' variable
+modelo_2_1<- coxph(Surv(time, status) ~ age + sex + ca + hb + pcells + protein, 
+                         data = myeloma)
+
+# Both models are compared
+summary(modelo_2)
+
+summary(modelo_2_1)
+
+```
+
+```{r}
+
+get_2logL <- function(modelo) {
+  return(-2 * modelo$loglik[2]) 
+}
+
+```
+
+# Example 3. Survival of multiple myeloma patients
+
+```{r}
+modelo_3_nulo <- coxph(Surv(time, status) ~ 1, data = myeloma)
+
+# Models with one variable
+modelo_3_bun <- coxph(Surv(time, status) ~ bun, data = myeloma)
+
+modelo_3_age <- coxph(Surv(time, status) ~ age, data = myeloma)
+
+modelo_3_sex <- coxph(Surv(time, status) ~ sex, data = myeloma)
+
+modelo_3_ca <- coxph(Surv(time, status) ~ ca, data = myeloma)
+
+modelo_3_pcells <- coxph(Surv(time, status) ~ pcells, data = myeloma)
+
+modelo_3_hb  <- coxph(Surv(time, status) ~ hb, data = myeloma)
+
+modelo_3_protein <- coxph(Surv(time, status) ~ protein, data = myeloma)
+
+#-2loglik
+cat("Null -2 log L:", -2 * modelo_3_nulo$loglik[1], "\n")
+cat("Age -2 log L:", get_2logL(modelo_3_age), "\n")
+cat("Sex -2 log L:", get_2logL(modelo_3_sex), "\n")
+cat("BUN -2 log L:", get_2logL(modelo_3_bun), "\n")
+cat("Ca -2 log L:", get_2logL(modelo_3_ca), "\n")
+cat("Hb -2 log L:", get_2logL(modelo_3_hb), "\n")
+cat("Pcells -2 log L:", get_2logL(modelo_3_pcells), "\n")
+cat("Protein -2 log L:", get_2logL(modelo_3_protein), "\n")
+
+```
+
+```{r}
+# Model summaries to see the p-values of each variable
+summary(modelo_3_bun)
+
+summary(modelo_3_hb)
+
+summary(modelo_3_protein)
+
+```
+
+
+```{r}
+
+# Combined models
+mod_3_bun_hb_protein <- coxph(Surv(time, status) ~ bun + hb+ protein, data = myeloma)
+mod_3_bun_hb <- coxph(Surv(time, status) ~ bun + hb, data = myeloma)
+mod_3_bun_protein <- coxph(Surv(time, status) ~ bun + protein, data = myeloma)
+mod_3_protein_hb <- coxph(Surv(time, status) ~ hb + protein, data = myeloma)
+
+cat("Hb + bun + protein -2 log L:", get_2logL(mod_3_bun_hb_protein), "\n")
+cat("Hb + bun -2 log L:", get_2logL(mod_3_bun_hb), "\n")
+cat("protein + bun -2 log L:", get_2logL(mod_3_bun_protein), "\n")
+cat("Hb + protein -2 log L:", get_2logL(mod_3_protein_hb), "\n")
+
+
+```
+
+```{r}
+# Variables that were previously not significant are added
+mod_3_bun_hb_age <- coxph(Surv(time, status) ~ bun + hb+age, data = myeloma)
+mod_3_bun_hb_sex<- coxph(Surv(time, status) ~ bun + hb + sex, data = myeloma)
+mod_3_bun_hb_ca<- coxph(Surv(time, status) ~ bun + hb + ca, data = myeloma)
+mod_3_bun_hb_pcells <- coxph(Surv(time, status) ~ bun + hb + pcells, data = myeloma)
+
+# Print the -2loglik statistics
+cat("Hb + BUN + Age -2 log L:", get_2logL(mod_3_bun_hb_age), "\n")
+cat("Hb + BUN + Sex -2 log L:", get_2logL(mod_3_bun_hb_sex), "\n")
+cat("Hb + BUN + Ca -2 log L:", get_2logL(mod_3_bun_hb_ca), "\n")
+cat("Hb + BUN + Pcells -2 log L:", get_2logL(mod_3_bun_hb_pcells), "\n")
+
+```
+
+```{r}
+summary(mod_3_bun_hb_sex)
+```
+
+
+# Example 4: Treatment, Prostatic cancer 
+
+```{r}
+data(prostatic)
+prostatic$treatment <- prostatic$treatment-1
+
+library(survival)
+
+# Fit all possible models
+
+
+# 0 variables (Null model)
+mod_none <- coxph(Surv(time, status) ~ 1, data = prostatic)
+
+# 1 variable
+mod_age   <- coxph(Surv(time, status) ~ age, data = prostatic)
+mod_shb   <- coxph(Surv(time, status) ~ shb, data = prostatic)
+mod_size  <- coxph(Surv(time, status) ~ size, data = prostatic)
+mod_index <- coxph(Surv(time, status) ~ index, data = prostatic)
+
+# 2 variables
+mod_age_shb   <- coxph(Surv(time, status) ~ age + shb, data = prostatic)
+mod_age_size  <- coxph(Surv(time, status) ~ age + size, data = prostatic)
+mod_age_index <- coxph(Surv(time, status) ~ age + index, data = prostatic)
+mod_shb_size  <- coxph(Surv(time, status) ~ shb + size, data = prostatic)
+mod_shb_index <- coxph(Surv(time, status) ~ shb + index, data = prostatic)
+mod_size_index<- coxph(Surv(time, status) ~ size + index, data = prostatic)
+
+# 3 variables
+mod_age_shb_size   <- coxph(Surv(time, status) ~ age + shb + size, data = prostatic)
+mod_age_shb_index  <- coxph(Surv(time, status) ~ age + shb + index, data = prostatic)
+mod_age_size_index <- coxph(Surv(time, status) ~ age + size + index, data = prostatic)
+mod_shb_size_index <- coxph(Surv(time, status) ~ shb + size + index, data = prostatic)
+
+# 4 variables
+mod_todos <- coxph(Surv(time, status) ~ age + shb + size + index, data = prostatic)
+
+
+cat("Model none AIC:", AIC(mod_none), "\n")
+
+cat("\n--- Models with 1 variable ---\n")
+cat("Model Age AIC:", AIC(mod_age), "\n")
+cat("Model Shb AIC:", AIC(mod_shb), "\n")
+cat("Model Size AIC:", AIC(mod_size), "\n")
+cat("Model Index AIC:", AIC(mod_index), "\n")
+
+cat("\n--- Models with 2 variables ---\n")
+cat("Model Age + Shb AIC:", AIC(mod_age_shb), "\n")
+cat("Model Age + Size AIC:", AIC(mod_age_size), "\n")
+cat("Model Age + Index AIC:", AIC(mod_age_index), "\n")
+cat("Model Shb + Size AIC:", AIC(mod_shb_size), "\n")
+cat("Model Shb + Index AIC:", AIC(mod_shb_index), "\n")
+cat("Model Size + Index AIC:", AIC(mod_size_index), "\n")
+
+cat("\n--- Models with 3 variables ---\n")
+cat("Model Age + Shb + Size AIC:", AIC(mod_age_shb_size), "\n")
+cat("Model Age + Shb + Index AIC:", AIC(mod_age_shb_index), "\n")
+cat("Model Age + Size + Index AIC:", AIC(mod_age_size_index), "\n")
+cat("Model Shb + Size + Index AIC:", AIC(mod_shb_size_index), "\n")
+
+cat("\n--- Model with 4 variables ---\n")
+cat("Model Age + Shb + Size + Index AIC:", AIC(mod_todos), "\n")
+
+```
+
+
+```{r}
+# Now we fit the treatment
+mod_size_index_trat<- coxph(Surv(time, status) ~ size + index + treatment, data = prostatic)
+
+cat("Model Treatment + Size + Index AIC:", AIC(mod_size_index_trat), "\n")
+
+```
+
+
+# Preliminary linearity test:
+
+```{r}
+# Example 4
+
+cat("\nModel with Hb:", get_2logL(mod_3_bun_hb), "\n")
+
+#  Test adding a quadratic term
+myeloma$hb_cuadrado <- myeloma$hb^2
+mod_hb_cuad <- coxph(Surv(time, status) ~ bun + hb + hb_cuadrado, data = myeloma)
+cat("\nModel with squared Hb -2 log L:", get_2logL(mod_hb_cuad), "\n")
+
+#  Test using categorization (Factors)
+myeloma$hb_factor <- cut(myeloma$hb, 
+                         breaks = c(-Inf, 7, 10, 13, Inf), 
+                         labels = c("1", "2", "3", "4"))
+
+mod_hb_factor <- coxph(Surv(time, status) ~ bun + hb_factor, data = myeloma)
+cat("Model with Hb as Factor -2 log L:", get_2logL(mod_hb_factor), "\n")
+
+```
+
+The AIC does not change when we introduce a quadratic term, but it does when we introduce the factor variable, so we calculate the p-value of this difference:
+
+```{r}
+# Compare the model with Hb as a continuous variable against the model with Hb as a factor
+anova(mod_3_bun_hb, mod_hb_factor)
+```
+
+
+
+ 
+ 

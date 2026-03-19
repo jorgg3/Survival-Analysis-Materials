@@ -1,0 +1,160 @@
+---
+title: "Theory and Estimation of AFT Models"
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Accelerated Failure Time (AFT) Models
+
+The general structure of an AFT model is defined as:
+$$\log(T) = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + ... + \beta_p X_p + \sigma W$$
+where $T$ is the survival time, $X_1, X_2, ..., X_p$ are the covariates, $\beta_0, \beta_1, ..., \beta_p$ are the coefficients to be estimated, $\sigma$ is the scale parameter, and $W$ is a random error term that follows a specified distribution (e.g., Weibull, log-normal, etc.)
+
+The AFT model assumes that the effect of the covariates is to accelerate or decelerate the survival time by a constant factor. The interpretation of the coefficients in an AFT model is different from that in a Cox proportional hazards model. In an AFT model, a positive coefficient indicates that the covariate is associated with a longer survival time, while a negative coefficient indicates a shorter survival time.
+
+For a null model (no covariates), the equation simplifies to $\ln(T) = \beta_0 + \sigma W$. Below, we detail the transformations required to obtain classical parameters from $\beta_0$ and $\sigma$.
+
+```{r}
+library(ggplot2)
+library(survival)
+library(MASS) # For multivariate simulation (mvrnorm)
+```
+
+## Exponential model 
+
+In the AFT framework of survreg, the Exponential distribution requires the scale parameter to be fixed at unity ($\sigma = 1$), where $W$ follows a standard extreme value distribution. The prediction for the null model is $\ln(T) = \beta_0$.Applying the exponential function to return to the real time scale, we obtain the expected time:
+
+$$E(T) = e^{\beta_0}$$
+
+Equating the theoretical expectation with the AFT model estimate:
+
+$$\lambda = e^{-\beta_0}$$
+
+
+where $\lambda$ is the rate parameter of the Exponential distribution.
+
+This is the fundamental transformation to obtain the constant hazard rate $\lambda$ from the intercept returned by R.
+
+```{r}
+# Loading data (Ensure the file is in your directory)
+# datos <- read.table(file = "NCCTGLungCancer.txt", header = TRUE)
+data(lung)
+datos <- lung
+
+modelo_exponencial <- survreg(Surv(time, status) ~ 1, 
+                              data = datos, 
+                              dist = "exponential")
+
+summary(modelo_exponencial)
+```
+### Estimation and Confidence Intervals
+
+```{r}
+# Estimation and CIs for E[T]
+expected_time <- exp(coef(modelo_exponencial))
+ci_time <- exp(confint(modelo_exponencial))
+
+# Estimation and CIs for Lambda
+lambda <- exp(-coef(modelo_exponencial))
+ic_lambda <- exp(-confint(modelo_exponencial)) 
+# Sort CI properly
+ic_lambda_sorted <- cbind(ic_lambda[,2], ic_lambda[,1]) 
+
+print(lambda)
+print(ic_lambda_sorted)
+```
+
+## Weibull model
+The Weibull distribution depends on a shape parameter $a > 0$ and a scale parameter $b > 0$:
+$$f(t) = \frac{a}{b} \left( \frac{t}{b} \right)^{a-1} e^{-(t/b)^a}$$
+
+Under the AFT model, the relationship between classical parameters $(a, b)$ and survreg estimators $(\beta_0, \sigma)$ is:
+$$a = \frac{1}{\sigma}$$
+$$b = e^{\beta_0}$$
+This transformation allows us to derive the shape and scale parameters of the Weibull distribution from the AFT model estimates. The shape parameter $a$ indicates the nature of the hazard function (increasing, decreasing, or constant), while the scale parameter $b$ represents the characteristic life of the distribution.
+
+```{r}
+modelo_weibull <- survreg(Surv(time, status) ~ 1, data = datos, dist = "weibull")
+
+# Extract parameters
+shape_est <- 1 / modelo_weibull$scale
+scale_est <- exp(coef(modelo_weibull))
+
+# Monte Carlo Simulation for Confidence Bands
+mu <- c(coef(modelo_weibull), log(modelo_weibull$scale))
+V <- vcov(modelo_weibull) 
+
+set.seed(236) 
+sim_params <- mvrnorm(n = 1000, mu = mu, Sigma = V)
+
+sim_b <- exp(sim_params[, 1])          
+sim_a <- 1 / exp(sim_params[, 2])       
+
+t_seq <- seq(0, max(datos$time, na.rm = TRUE), length.out = 200)
+dens_matrix <- matrix(NA, nrow = length(t_seq), ncol = 1000)
+
+for (i in 1:1000) {
+  dens_matrix[, i] <- dweibull(t_seq, shape = sim_a[i], scale = sim_b[i])
+}
+
+# Calculate quantiles for the ribbon
+f_est <- dweibull(t_seq, shape = shape_est, scale = scale_est)
+f_inf <- apply(dens_matrix, 1, quantile, probs = 0.025) 
+f_sup <- apply(dens_matrix, 1, quantile, probs = 0.975)
+
+df_weibull <- data.frame(t = t_seq, density = f_est, lower = f_inf, upper = f_sup)
+
+ggplot(datos, aes(x = time)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "steelblue", alpha = 0.6) +
+  geom_ribbon(data = df_weibull, aes(x = t, ymin = lower, ymax = upper), 
+              fill = "darkorange", alpha = 0.3, inherit.aes = FALSE) +
+  geom_line(data = df_weibull, aes(x = t, y = density), color = "darkorange", linewidth = 1.2, inherit.aes = FALSE) +
+  theme_minimal() +
+  labs(title = "Weibull Fit with 95% Confidence Bands", x = "Time", y = "Density")
+```
+
+## Log-normal model
+Survival time $T$ follows a Log-Normal distribution if $\ln(T) \sim \mathcal{N}(\mu, \sigma_{LN}^2)$. Since AFT models operate on $\ln(T)$, the equivalence is direct:
+$$\mu = \beta_0$$
+$$\sigma_{LN} = \sigma$$
+```{r}
+modelo_lognormal <- survreg(Surv(time, status) ~ 1, data = datos, dist = "lognormal")
+
+mu_est <- coef(modelo_lognormal)            
+sigma_est <- modelo_lognormal$scale         
+
+# Simulation
+params_cov <- c(mu_est, log(sigma_est)) 
+V_ln <- vcov(modelo_lognormal)
+
+set.seed(236) 
+sim_params_ln <- mvrnorm(n = 1000, mu = params_cov, Sigma = V_ln)
+
+sim_mu <- sim_params_ln[, 1]
+sim_sigma <- exp(sim_params_ln[, 2]) 
+
+dens_matrix_ln <- matrix(NA, nrow = length(t_seq), ncol = 1000)
+for (i in 1:1000) {
+  dens_matrix_ln[, i] <- dlnorm(t_seq, meanlog = sim_mu[i], sdlog = sim_sigma[i])
+}
+
+f_est_ln <- dlnorm(t_seq, meanlog = mu_est, sdlog = sigma_est)
+f_inf_ln <- apply(dens_matrix_ln, 1, quantile, probs = 0.025)
+f_sup_ln <- apply(dens_matrix_ln, 1, quantile, probs = 0.975)
+
+df_ln <- data.frame(t = t_seq, density = f_est_ln, lower = f_inf_ln, upper = f_sup_ln)
+
+ggplot(datos, aes(x = time)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "steelblue", alpha = 0.6) +
+  geom_ribbon(data = df_ln, aes(x = t, ymin = lower, ymax = upper), 
+              fill = "forestgreen", alpha = 0.3, inherit.aes = FALSE) +
+  geom_line(data = df_ln, aes(x = t, y = density), color = "forestgreen", linewidth = 1.2, inherit.aes = FALSE) +
+  theme_minimal() +
+  labs(title = "Log-Normal Fit with 95% Confidence Bands", x = "Time", y = "Density")
+```
+

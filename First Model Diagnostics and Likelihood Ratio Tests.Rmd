@@ -1,0 +1,100 @@
+---
+title: "First Model Diagnostics and Likelihood Ratio Tests"
+author: "José Jorge Martínez de la Cruz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Graphical Diagnostics and Model Selection
+Before fitting a parametric model, it is crucial to verify if the data follows the assumed distribution. In this session, we use linearization techniques (graphical diagnostics) and the Likelihood Ratio Test (LRT) to compare nested models.
+
+```{r}
+library(survival)
+library(ggplot2)
+```
+We continue using the lung cancer dataset to evaluate which parametric distribution fits best.
+
+```{r}
+# Use built-in lung data if the .txt is not available
+data(lung)
+datos_tarea <- lung
+
+# Fit the non-parametric Kaplan-Meier estimator as a baseline
+km_fit <- survfit(Surv(time, status) ~ 1, data = datos_tarea)
+
+# Extract survival probabilities and time for transformation
+t <- km_fit$time
+S_t <- km_fit$surv
+
+# Filter out S(t) = 0 or 1 to avoid log(0) or undefined quantiles
+valid_indices <- S_t > 0 & S_t < 1
+t <- t[valid_indices]
+S_t <- S_t[valid_indices]
+```
+## Graphical Diagnostics (Linearization)
+Each parametric distribution can be linearized. If the dots follow a straight line, the model is a good candidate:
+
+Exponential: $\log(S(t)) \propto t$
+Weibull: $\log(-\log(S(t))) \propto \log(t)$
+Log-Normal: $\Phi^{-1}(1 - S(t)) \propto \log(t)$
+
+```{r}
+# Set up a 1x3 grid for comparison
+par(mfrow = c(1, 3), mar=c(4,4,3,1))
+
+# --- A. Exponential Diagnostic ---
+plot(t, log(S_t), 
+     main = "A. Exponential",
+     xlab = "t", ylab = "log( S(t) )",
+     pch = 16, col = "darkblue")
+abline(lm(log(S_t) ~ t + 0), col = "red", lwd = 2, lty = 2)
+
+# --- B. Weibull Diagnostic ---
+plot(log(t), log(-log(S_t)), 
+     main = "B. Weibull",
+     xlab = "log( t )", ylab = "log( -log(S(t)) )",
+     pch = 16, col = "darkgreen")
+abline(lm(log(-log(S_t)) ~ log(t)), col = "red", lwd = 2, lty = 2)
+
+# --- C. Log-Normal Diagnostic ---
+plot(log(t), qnorm(1 - S_t), 
+     main = "C. Log-normal",
+     xlab = "log( t )", ylab = "Normal Quantile (1 - S(t))",
+     pch = 16, col = "purple")
+abline(lm(qnorm(1 - S_t) ~ log(t)), col = "red", lwd = 2, lty = 2)
+
+# Reset plot window
+par(mfrow = c(1, 1))
+```
+
+## Likelihood Ratio Test (LRT)
+The Exponential model is a nested case of the Weibull model (where the shape parameter $\gamma = 1$). We can perform a formal test to see if the added complexity of the Weibull model is statistically significant. The coparision between hypotheses is:
+- $H_0$: The data follows an Exponential distribution (nested model).
+- $H_1$: The data follows a Weibull distribution (full model).
+
+```{r}
+
+# Null Model (Exponential)
+mod_exp <- survreg(Surv(time, status) ~ 1, data = datos_tarea, dist = "exponential")
+
+# Alternative Model (Weibull)
+mod_wei <- survreg(Surv(time, status) ~ 1, data = datos_tarea, dist = "weibull")
+
+# Extract Log-Likelihoods
+logL_exp <- mod_exp$loglik[1]
+logL_wei <- mod_wei$loglik[1]
+
+# Calculate the Test Statistic (Lambda): -2 * (logL_null - logL_alt)
+lambda_stat <- 2 * (logL_wei - logL_exp)
+
+# Calculate p-value using a Chi-squared distribution (df = 1)
+p_val <- pchisq(lambda_stat, df = 1, lower.tail = FALSE)
+
+cat("LRT Statistic (-2 log Lambda):", lambda_stat, "\n")
+cat("p-value:", p_val, "\n")
+```
+If the p-value is less than the significance level (commonly 0.05), we reject the null hypothesis, suggesting that the Weibull model provides a significantly better fit than the Exponential model.

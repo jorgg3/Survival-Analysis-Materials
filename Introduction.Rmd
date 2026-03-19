@@ -1,0 +1,107 @@
+---
+title: "Introduction: Why Linear Regression Fails with Censored Data"
+author: "Jorge de la Cruz"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    keep_tex: true
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Survival Analysis vs. Linear Regression
+
+In this introductory session, we will demonstrate why standard Linear Regression (Ordinary Least Squares) is not suitable for survival data when censoring is present. Censoring occurs when we do not observe the exact time of the event for all individuals. For example, if we are studying time to an event (like death, failure, etc.), some individuals may still be alive or have not experienced the event by the end of the study. This leads to incomplete data, which violates the assumptions of linear regression.
+
+To illustrate this, we will simulate a dataset where the true relationship between the predictor (Engagement) and the outcome (Time to Event) is linear, but we will introduce censoring. We will then fit a linear regression model to this censored data and compare it to a survival analysis approach.
+
+```{r}
+library(survival)
+set.seed(236) #This is my id number, you can use any other 
+```
+
+We will simulate a scenario where the survival time ($T$) depends linearly on an "Engagement" covariate.
+
+```{r}
+
+n <- 100  
+
+# Covariate: Engagement level
+x <- runif(n, min = 0, max = 10)
+beta_0 <- 10
+beta_1 <- 4
+sigma <- 2 
+
+# Data generation process: T = 10 + 4*X + Error
+noise <- rnorm(n, mean = 0, sd = sigma)
+true_time <- beta_0 + beta_1 * x + noise
+true_time <- pmax(true_time, 0.1) # Ensure positive survival times
+
+real_data <- data.frame(Engagement = x, True_Time = true_time)
+head(real_data)
+
+cat("Correlation between Engagement and True Time:", cor(real_data$Engagement, real_data$True_Time))
+```
+Now, we will introduce censoring into our dataset. We will set a censoring threshold and observe how many individuals are censored.
+```{r}
+censoring_threshold <- 25
+observed_time <- pmin(true_time, censoring_threshold)
+status <- ifelse(true_time <= censoring_threshold, 1, 0) 
+censored_data <- data.frame(
+  Engagement = x,
+  True_Time = true_time,       # The actual time to event
+  Observed_Time = observed_time,   # The time we observe (censored or not)
+  Status = status          # Censoring status (1 if event observed, 0 if censored)
+)
+head(censored_data[censored_data$Status == 0, ]) # Show censored observations
+```
+Standard linear regression (lm) ignores the fact that censored observations (Status = 0) are lower bounds of the true time. In contrast, survreg accounts for this distribution. Let's fit a linear regression model to the observed data and compare it to a survival regression model.
+
+```{r}
+# Fit linear regression ignoring censoring
+lm_model <- lm(Observed_Time ~ Engagement, data = censored_data)
+summary(lm_model)
+```
+Now, let's fit a survival regression model that accounts for censoring.
+```{r}
+surv_model <- survreg(Surv(Observed_Time, Status) ~ Engagement, data = censored_data, dist = "gaussian")
+summary(surv_model)
+```
+In this example, we will see that the linear regression model provides biased estimates of the relationship between Engagement and Time to Event due to the presence of censored data. The survival regression model, on the other hand, correctly accounts for censoring and provides more accurate estimates of the effect of Engagement on Time to Event. This illustrates why linear regression is not appropriate for survival data with censoring and highlights the importance of using survival analysis techniques in such cases.
+
+We can visualize how the OLS regression line is "pulled down" by the censored observations, leading to biased estimates of the effect of Engagement.
+
+```{r}
+new_data <- data.frame(Engagement = seq(0, 10, length.out = 100))
+
+# Predictions from both models
+pred_reg <- predict(lm_model, newdata = new_data)
+pred_surv <- predict(surv_model, newdata = new_data, type = "response")
+```
+
+```{r}
+# Plotting results
+plot(censored_data$Engagement, censored_data$Observed_Time,
+     col = ifelse(censored_data$Status == 0, "red", "gray"), # Red = Censored
+     pch = ifelse(censored_data$Status == 0, 4, 19),         # x = Censored
+     main = "Linear Regression vs. Survival Model",
+     xlab = "Engagement Coefficient",
+     ylab = "Estimated Time",
+     ylim = c(0, 40))
+
+# Prediction lines
+lines(new_data$Engagement, pred_reg, col = "orange", lwd = 4)
+lines(new_data$Engagement, pred_surv, col = "blue", lwd = 4, lty = 1)
+
+legend("topleft", 
+       legend = c("OLS Regression (lm)", "Survival (survreg)", "Censored Point"),
+       col = c("orange", "blue", "red"),
+       lwd = c(4, 4, NA),   
+       pch = c(NA, NA, 4),
+       cex = 0.7,     
+       bty = "n")
+```
+
+
