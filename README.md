@@ -39,7 +39,7 @@ To replicate these analyses, you will need **R** and the following specialized l
 ```r
 # Installation command
 install.packages(c("survival", "survminer", "ggplot2", "dplyr", "MASS", "collett"))
-
+```
 ---
 Author: José Jorge Martínez de la Cruz
 
